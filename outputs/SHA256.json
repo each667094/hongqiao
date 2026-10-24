@@ -1,0 +1,19 @@
+{
+  "交付验证报告.json": "48aa65acd5ccb84295f3c248c44c1ab7fd68fc6af0ff524cec29e46a0a950657",
+  "伴侣协议.md": "8ca987cc7f591f8acfd5d6ce6917e15b854348b3d5bedef60d0bdaadad55e899",
+  "使用说明.md": "774ea923916698d6982e9f6803935bedb2fa5acc1e7b6f6ca6babe4eda82999f",
+  "原理与架构分析.md": "bfafd84681bd102e2dd21c811b4cbe9ebda6fc9a23b13385a8bd24f2bdc8522e",
+  "核心检查.json": "0d554e235e946e52fc1818a478d919a87dc0d558111278ee108168c9ec9eddee",
+  "界面预览/01-工作台.png": "c9447a789b9c7d08e093c3b7c8ae415a351d53923ebe6db95420c57f5c949852",
+  "界面预览/02-实时投屏.png": "120de87dd3eba49b594ef1ae4befeb03baa76487d928f8c108f4326bfe62eb1f",
+  "界面预览/03-相册.png": "c2c658b7a1686a96a25d0c5ea23745231bd6de39c6010c0f740b1879a2ee107e",
+  "界面预览/04-连接与诊断.png": "ad4dae345db8c0e1d62a7275a97afda38ae92b52a9e294028a43fb5998662c98",
+  "界面预览/AppIcon.png": "f8e721ff6dfca0bd484b4512a551e337347db9a2ffaca7d47a628935ec9f5f6d",
+  "验证结果.json": "5c707701e0aa41fd6cdc48b6feea8f736c13e5b150efed5bc752cedb1a493806",
+  "鸿桥-Mac应用.zip": "c8d585702e96c01710ce0c1a3c0916cdb45fdf2b18812d466a4b2d2de768cb71",
+  "鸿桥-完整源码.zip": "f630049f8baa9000b029c627cd3f53310454302ba4a3fea372090705887896ca",
+  "鸿桥.app/Contents/Info.plist": "282d10ae67a2884909a93f214b2073d58a62a2c993df891e943d6fed6473cf6d",
+  "鸿桥.app/Contents/MacOS/Hongqiao": "caf8db697fd0e63e363b760e22463728b0f785321c5f266349917d88b887b7ce",
+  "鸿桥.app/Contents/Resources/AppIcon.icns": "5be3bd322d13558b41fe3e54126a205b5e31172f5f3b6136754d69a0a44ce27a",
+  "鸿桥.app/Contents/_CodeSignature/CodeResources": "32af84717dc78461b7e04368c757dd4a22f4f7eb3b7b71ae17a24ce26c84b000"
+}

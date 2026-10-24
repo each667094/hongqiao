@@ -1,0 +1,9 @@
+{
+  "assertions" : 32,
+  "failures" : [
+
+  ],
+  "phoneUsed" : false,
+  "status" : "passed",
+  "testSuites" : 7
+}

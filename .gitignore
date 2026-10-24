@@ -1,0 +1,12 @@
+.build/
+work/
+.DS_Store
+
+# Local credentials
+.env
+.env.*
+!.env.example
+
+# Generated application bundles and archives
+outputs/*.app/
+outputs/*.zip
