@@ -6,9 +6,8 @@ let package = Package(
     products: [.executable(name: "Hongqiao", targets: ["HongqiaoDesktop"])],
     targets: [
         .target(name: "HongqiaoCore"),
-        .target(name: "HongqiaoPeer", dependencies: ["HongqiaoCore"]),
-        .executableTarget(name: "HongqiaoDesktop", dependencies: ["HongqiaoCore", "HongqiaoPeer"]),
-        .executableTarget(name: "HongqiaoChecks", dependencies: ["HongqiaoCore", "HongqiaoPeer"], path: "Tests/HongqiaoCoreTests")
+        .executableTarget(name: "HongqiaoDesktop", dependencies: ["HongqiaoCore"]),
+        .executableTarget(name: "HongqiaoChecks", dependencies: ["HongqiaoCore"], path: "Tests/HongqiaoCoreTests")
     ],
     swiftLanguageModes: [.v5]
 )

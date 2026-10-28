@@ -1,5 +1,6 @@
 import Foundation
 import HongqiaoCore
+import CryptoKit
 
 final class BridgeTests {
     var assertions = 0
@@ -34,10 +35,43 @@ final class BridgeTests {
         for path in ["relative", "/data/../secret", "/data/a\n.txt"] { XCTAssertThrowsError(try Shell.safeRemotePath(path)) }
         XCTAssertEqual(try Shell.safeRemotePath("/data/local/tmp/研究 数据.csv"), "/data/local/tmp/研究 数据.csv")
     }
-    func testPeerRejectsInsecureLANAndAmbiguousURLs() {
-        for url in ["http://192.168.1.1:3000", "https://127.0.0.1:3000", "http://example.com", "http://user:pass@127.0.0.1:3000", "http://127.0.0.1:3000?token=x"] {
-            XCTAssertThrowsError(try PeerTransport(baseURL: URL(string: url)!, token: "test"))
+    func testDeviceDiscoveryAndSelection() throws {
+        XCTAssertEqual(try DeviceScan.parse("[Empty]\n").targets, [])
+        XCTAssertEqual(try DeviceScan.parse("[Info] server started\nUSB123\nUSB123\n").targets, ["USB123"])
+        XCTAssertEqual(try DeviceScan.parse("USB123 connected\n192.168.1.8:12345\n").targets, ["USB123", "192.168.1.8:12345"])
+        XCTAssertEqual(try DeviceScan.parse("USB123 Unauthorized\n").needsAuthorization, true)
+        XCTAssertThrowsError(try DeviceScan.parse("[Fail] server error"))
+        XCTAssertEqual(ConnectionDecision.plan(DeviceScan(targets: [])), .waitForDevice)
+        XCTAssertEqual(ConnectionDecision.plan(DeviceScan(targets: [], needsAuthorization: true)), .waitForAuthorization)
+        XCTAssertEqual(ConnectionDecision.plan(DeviceScan(targets: ["one"])), .connect("one"))
+        XCTAssertEqual(ConnectionDecision.plan(DeviceScan(targets: ["one", "two"])), .choose(["one", "two"]))
+        XCTAssertEqual(ConnectionDecision.plan(DeviceScan(targets: ["one"], needsAuthorization: true)), .choose(["one"]))
+    }
+    func testWirelessValidation() throws {
+        XCTAssertEqual(try WirelessAddress.endpoint(host: " 192.168.1.8 ", port: " 41329 "), "192.168.1.8:41329")
+        for (host, port) in [("", "123"), ("192.168.1.256", "123"), ("192.168..1", "123"), ("localhost", "123"), ("127.0.0.1;echo", "123"), ("192.168.1.2", "0"), ("192.168.1.2", "65536"), ("192.168.1.2", "$(id)")] {
+            XCTAssertThrowsError(try WirelessAddress.endpoint(host: host, port: port))
         }
+    }
+    func testBundledToolIntegrity() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("app")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = BundledHDC.directory(in: root)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try BundledHDC.resolve(in: root))
+        let executable = folder.appendingPathComponent("hdc")
+        let bytes = Data("#!/bin/sh\nexit 0\n".utf8)
+        try bytes.write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        XCTAssertThrowsError(try BundledHDC.resolve(in: root))
+        let checksum = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        let metadata = try JSONSerialization.data(withJSONObject: ["bundledSHA256": ["hdc": checksum]])
+        let manifest = root.appendingPathComponent("Contents/Resources/HDC/manifest.json")
+        try FileManager.default.createDirectory(at: manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try metadata.write(to: manifest)
+        XCTAssertEqual(try BundledHDC.resolve(in: root), executable)
+        try Data("modified".utf8).write(to: executable)
+        XCTAssertThrowsError(try BundledHDC.resolve(in: root))
     }
     func testProcessTimeout() async throws {
         let start = Date()
@@ -75,11 +109,13 @@ final class BridgeTests {
             suite.testLandscapeAndBounds()
             try await suite.testShellQuotingSurvivesHostileText()
             try suite.testFileNameAndPathValidation()
-            suite.testPeerRejectsInsecureLANAndAmbiguousURLs()
+            try suite.testDeviceDiscoveryAndSelection()
+            try suite.testWirelessValidation()
+            try suite.testBundledToolIntegrity()
             try await suite.testProcessTimeout()
             try await suite.testHDCArgumentsWithFakeExecutable()
         } catch { suite.failures.append(error.localizedDescription) }
-        let report: [String: Any] = ["status": suite.failures.isEmpty ? "passed" : "failed", "assertions": suite.assertions, "failures": suite.failures, "phoneUsed": false, "testSuites": 7]
+        let report: [String: Any] = ["status": suite.failures.isEmpty ? "passed" : "failed", "assertions": suite.assertions, "failures": suite.failures, "phoneUsed": false, "testSuites": 9]
         let data = try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         print(String(decoding: data, as: UTF8.self))
         exit(suite.failures.isEmpty ? 0 : 1)

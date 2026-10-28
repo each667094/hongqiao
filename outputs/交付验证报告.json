@@ -1,49 +1,41 @@
 {
-  "date": "2026-10-24",
+  "version": "0.2.0",
+  "date": "2026-10-28",
   "build": "release arm64, macOS 14+",
   "core": {
-    "assertions": 32,
+    "assertions": 50,
     "failures": [],
     "phoneUsed": false,
     "status": "passed",
-    "testSuites": 7
+    "testSuites": 9
   },
-  "integration": {
+  "packageChecks": {
+    "bundledToolVersion": "Ver: 3.2.0e",
     "checks": [
-      "演示设备识别正确且明确标注",
-      "截图字节可解码且坐标尺寸一致",
-      "点击经 HTTP 到达模拟设备并改变页面",
-      "中文输入改变远端画面",
-      "滑动、长按、返回指令生效",
-      "1 MB 中文文件名双向传输 SHA-256 一致",
-      "阻止同名覆盖",
-      "伴侣剪贴板双向往返",
-      "相册文件列表可读取",
-      "相册原文件可解码",
-      "无效会话令牌被拒绝",
-      "录屏生成有效 H.264 MOV 视频轨与时长",
-      "原生状态模型完成本地连接并默认关闭控制",
-      "暂停后不再更新画面",
-      "断开清理画面、控制与会话",
-      "重新启动独立会话可用"
+      "应用内置可执行连接工具及校验清单",
+      "内置连接工具与 USB 动态库可正常加载，仅执行版本查询",
+      "应用启动仅检查内置组件，不发现或连接手机",
+      "未连接时关闭控制且不生成设备"
     ],
     "phoneUsed": false,
     "realDeviceVerified": false,
     "status": "passed",
-    "timestamp": "2026-10-24T06:25:35Z"
+    "timestamp": "2026-10-28T05:58:15Z",
+    "version": "0.2.0"
   },
   "visualReview": {
     "screens": 4,
-    "method": "Native NSHostingView/AppKit render and visual inspection",
-    "phoneUsed": false
+    "method": "Native view rendering and visual inspection"
   },
-  "signature": "ad-hoc, codesign --verify --deep --strict passed",
+  "signature": "ad-hoc; codesign --verify --deep --strict passed",
+  "bundledTool": "HDC 3.2.0e + libusb 1.0.28",
+  "runtimeDownloadsRequired": false,
+  "manualToolPathRequired": false,
+  "realDeviceVerified": false,
   "limitations": [
-    "未使用手机，HDC 真机功能未验证",
-    "未提供原生 HarmonyOS 伴侣 App",
-    "HDC 为截图轮询，不是连续低延迟视频流",
-    "未实现完整图库权限、双向手机系统剪贴板和蓝牙 HID",
-    "未实现手机摄像头与 CoreMediaIO 系统扩展",
-    "未公证，仅本地签名构建"
+    "手机端仍需开启调试并确认首次授权",
+    "本次未搜索、连接或操作手机",
+    "投屏采用截图刷新",
+    "完整图库、手机系统剪贴板和手机摄像头扩展尚未实现"
   ]
 }

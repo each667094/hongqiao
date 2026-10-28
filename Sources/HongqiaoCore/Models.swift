@@ -12,9 +12,8 @@ public struct Device: Codable, Identifiable, Equatable {
     public var system: String
     public var width: Int
     public var height: Int
-    public var isDemo: Bool
-    public init(id: String, name: String, system: String, width: Int, height: Int, isDemo: Bool) {
-        self.id = id; self.name = name; self.system = system; self.width = width; self.height = height; self.isDemo = isDemo
+    public init(id: String, name: String, system: String, width: Int, height: Int) {
+        self.id = id; self.name = name; self.system = system; self.width = width; self.height = height
     }
 }
 public struct RemoteFile: Codable, Identifiable, Equatable {

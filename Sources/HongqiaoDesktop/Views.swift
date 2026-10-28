@@ -1,6 +1,5 @@
 import SwiftUI
 import HongqiaoCore
-import HongqiaoPeer
 
 extension Color {
     static let canvas = Color(red: 0.045, green: 0.060, blue: 0.085)
@@ -56,6 +55,7 @@ struct RootView: View {
         .foregroundStyle(.white).font(.system(size: 13)).preferredColorScheme(.dark)
         .frame(minWidth: 1100, minHeight: 740)
         .alert("操作未完成", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) { Button("知道了") { model.error = nil } } message: { Text(model.error ?? "") }
+        .sheet(isPresented: $model.showConnectionGuide) { ConnectionGuideView() }
     }
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -75,18 +75,18 @@ struct RootView: View {
             Spacer()
             VStack(alignment: .leading, spacing: 9) {
                 HStack { Circle().fill(model.connected ? Color.mint : Color.muted).frame(width: 6, height: 6); Text(model.connected ? "会话已连接" : "等待连接").font(.system(size: 12, weight: .medium)) }
-                Text(model.connected ? (model.isDemo ? "仅本机模拟 · 未使用手机" : "HDC · 用户授权设备") : "先体验，再连接。\n没有手机也能探索工作流。")
+                Text(model.connected ? "手机已授权连接" : "连接手机，开始投屏。\n首次使用需在手机上授权。")
                     .font(.system(size: 11)).foregroundStyle(Color.muted).lineSpacing(4)
                 if model.connected { Button("断开连接") { Task { await model.disconnect() } }.buttonStyle(.plain).foregroundStyle(Color.accent).font(.system(size: 11)).disabled(model.connecting || model.busy) }
             }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 12)).padding(14)
-            HStack { Text("LOCAL FIRST").tracking(1.8); Spacer(); Text("v0.1") }.font(.system(size: 8, design: .monospaced)).foregroundStyle(Color.muted.opacity(0.65)).padding(.horizontal, 24).padding(.bottom, 20)
+            HStack { Text("LOCAL FIRST").tracking(1.8); Spacer(); Text("v0.2") }.font(.system(size: 8, design: .monospaced)).foregroundStyle(Color.muted.opacity(0.65)).padding(.horizontal, 24).padding(.bottom, 20)
         }.background(Color.sidebar).overlay(alignment: .trailing) { Rectangle().fill(Color.line).frame(width: 1) }
     }
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 7) { Text(model.destination.rawValue).font(.system(size: 25, weight: .semibold)); Text(model.destination.description).font(.system(size: 12)).foregroundStyle(Color.muted) }
             Spacer()
-            Pill(text: model.isDemo ? "本地演示 / 非手机" : model.connected ? "HDC 已连接" : "未连接手机", color: model.connected ? .mint : .muted)
+            Pill(text: model.connected ? "手机已连接" : "未连接手机", color: model.connected ? .mint : .muted)
             Button { model.destination = .settings } label: { Image(systemName: "antenna.radiowaves.left.and.right").font(.system(size: 18)).foregroundStyle(Color.muted).frame(width: 34, height: 34) }.buttonStyle(.plain).help("连接与诊断")
         }.padding(.horizontal, 30).padding(.vertical, 24)
     }
@@ -104,66 +104,70 @@ struct OverviewView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                HStack(alignment: .top, spacing: 20) {
-                    hero
-                    VStack(spacing: 16) {
-                        Card {
-                            VStack(alignment: .leading, spacing: 15) {
-                                HStack { Image(systemName: "link").foregroundStyle(Color.mint); Text("连接状态").fontWeight(.semibold); Spacer(); Circle().fill(model.connected ? Color.mint : Color.muted).frame(width: 7, height: 7) }
-                                Text(model.device?.name ?? "让设备准备好").font(.system(size: 20, weight: .semibold))
-                                Text(model.device?.system ?? "本轮无需手机。内置演示伴侣让你先走完操作流程。").font(.system(size: 12)).foregroundStyle(Color.muted).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
-                                Divider().overlay(Color.line)
-                                HStack { stat("连接方式", model.isDemo ? "回环网络" : model.connected ? "HDC" : "未连接"); Spacer(); stat("画面尺寸", model.image == nil ? "—" : "\(model.device?.width ?? 0) × \(model.device?.height ?? 0)") }
-                                Button { model.destination = .settings } label: { HStack { Text("管理连接"); Spacer(); Image(systemName: "arrow.up.right") }.foregroundStyle(Color.accent).font(.system(size: 12)) }.buttonStyle(.plain)
-                            }
+                HStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Pill(text: "跨设备，从这座桥开始")
+                        Text("手机的世界，\n在 Mac 上继续。").font(.system(size: 34, weight: .semibold)).lineSpacing(8)
+                        Text("连接手机，即可投屏、操作和传文件。\n连接工具已随鸿桥安装，无需另装开发环境。")
+                            .font(.system(size: 13)).foregroundStyle(Color.muted).lineSpacing(7).fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 16) {
+                            Button { if model.connected { model.destination = .mirror } else { Task { await model.connectPhone() } } } label: {
+                                Label(model.connecting ? "正在连接…" : model.connected ? "打开手机投屏" : "连接手机", systemImage: model.connected ? "rectangle.on.rectangle" : "cable.connector")
+                                    .font(.system(size: 14, weight: .semibold)).padding(.horizontal, 20).padding(.vertical, 12).foregroundStyle(Color.canvas).background(Color.mint, in: RoundedRectangle(cornerRadius: 11))
+                            }.buttonStyle(.plain).disabled(model.connecting || model.busy || !model.componentReady)
+                            Button("查看连接步骤") { model.showConnectionGuide = true }.buttonStyle(.plain).foregroundStyle(Color.accent)
+                        }.padding(.top, 10)
+                        if model.connectionTitle != "准备连接手机" { Text(model.connectionTitle).font(.system(size: 12, weight: .medium)).foregroundStyle(Color.mint) }
+                    }
+                    Spacer(minLength: 20)
+                    VStack(spacing: 20) {
+                        if let image = model.image {
+                            Image(nsImage: image).resizable().scaledToFit().frame(width: 160, height: 300).clipShape(RoundedRectangle(cornerRadius: 18))
+                        } else {
+                            ZStack {
+                                Circle().fill(Color.mint.opacity(0.035)).frame(width: 220, height: 220)
+                                Circle().stroke(Color.mint.opacity(0.12), lineWidth: 1).frame(width: 180, height: 180)
+                                Image(systemName: "iphone.gen3").font(.system(size: 112, weight: .ultraLight)).foregroundStyle(Color.mint.opacity(0.8))
+                                Image(systemName: "cable.connector").font(.system(size: 24)).foregroundStyle(Color.mint).offset(y: 88)
+                            }.frame(width: 240, height: 300)
                         }
-                        Card {
-                            VStack(alignment: .leading, spacing: 15) {
-                                HStack { Image(systemName: "shield.lefthalf.filled").foregroundStyle(Color.mint); Text("独立实现 · 本地运行").fontWeight(.medium) }
-                                Text("不调用灵犀互联的服务，也不复用它的程序、图标或手机代理。演示会话只绑定本机地址，连接令牌在结束后失效。")
-                                    .font(.system(size: 12)).foregroundStyle(Color.muted).lineSpacing(6)
-                            }
-                        }
-                    }.frame(width: 300)
+                        Text(model.device?.name ?? "等待你的手机").font(.system(size: 11)).foregroundStyle(Color.muted)
+                    }
+                }.padding(32).frame(maxWidth: .infinity, minHeight: 390, alignment: .leading)
+                    .background(LinearGradient(colors: [Color.panel, Color(red: 0.07, green: 0.17, blue: 0.20)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 20)).overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
+                HStack(spacing: 16) {
+                    quickStep("1", "连接数据线", "用支持数据传输的线连接手机。")
+                    quickStep("2", "在手机上授权", "开启 USB 调试，确认允许连接。")
+                    quickStep("3", "点击连接手机", "单台手机会自动连接并打开投屏。")
                 }
-                HStack(spacing: 14) {
-                    feature(.mirror, "看见，也能操作", "点击 · 滑动 · 中文输入", "rectangle.on.rectangle", .accent)
-                    feature(.files, "文件在两端流转", "拖入发送 · 原文件保存", "arrow.up.arrow.down", .mint)
-                    feature(.clipboard, "让文字接着走", "手动读取 · 双向传递", "doc.on.clipboard", .orange)
+                if !model.devices.isEmpty || model.connectionTitle == "还没有发现手机" || model.connectionTitle == "请在手机上允许连接" {
+                    ConnectionPanel(model: model)
                 }
-                HStack { Image(systemName: "checkmark.seal").foregroundStyle(Color.mint); Text("本地演示是可交互的测试设备。HDC 真机功能需连接授权手机后验证。 ").foregroundStyle(Color.muted); Spacer(); Text("不等同于完整复刻版").foregroundStyle(Color.muted.opacity(0.65)) }.font(.system(size: 10)).padding(.horizontal, 4)
+                HStack { Image(systemName: "lock.shield").foregroundStyle(Color.mint); Text("每次连接由你发起，反向控制需手动开启。").foregroundStyle(Color.muted); Spacer(); Button("使用无线连接 →") { model.connectionMethod = .wireless; model.resetConnectionChoices(); model.destination = .settings }.buttonStyle(.plain).foregroundStyle(Color.accent).disabled(model.connected || model.connecting) }.font(.system(size: 11)).padding(.horizontal, 5)
             }.padding(28)
         }
     }
-    private var hero: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 17) {
-                Pill(text: "跨设备，从这座桥开始")
-                Text("手机的世界，\n在 Mac 上继续。").font(.system(size: 32, weight: .semibold)).lineSpacing(8).fixedSize(horizontal: false, vertical: true)
-                Text("投屏、操作、传文件。\n一个清晰的设备工作台。").font(.system(size: 13)).foregroundStyle(Color.muted).lineSpacing(6)
-                Spacer(minLength: 18)
-                Button { Task { await model.startDemo() } } label: { Label(model.connected ? "重新体验演示" : "开始本地体验", systemImage: "play.fill").font(.system(size: 13, weight: .semibold)).padding(.horizontal, 14).padding(.vertical, 10).foregroundStyle(Color.canvas).background(Color.mint, in: RoundedRectangle(cornerRadius: 10)) }.buttonStyle(.plain).disabled(model.connecting || model.busy)
-                Button("连接我的手机 →") { model.destination = .settings }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Color.muted)
-            }.padding(.vertical, 6)
-            Spacer(minLength: 0)
-            VStack(spacing: 8) {
-                Image(nsImage: model.image ?? DemoArtwork.image()).resizable().interpolation(.high).scaledToFit().frame(width: 170, height: 340).clipShape(RoundedRectangle(cornerRadius: 22)).overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.17), lineWidth: 5)).shadow(color: .black.opacity(0.3), radius: 20, y: 14)
-                Text(model.connected ? (model.isDemo ? "本地演示设备" : "已授权设备画面") : "界面示意 · 非手机画面").font(.system(size: 9)).foregroundStyle(Color.muted)
-            }
-        }.padding(28).frame(maxWidth: .infinity, minHeight: 400, maxHeight: 400, alignment: .leading)
-            .background(LinearGradient(colors: [Color.panel, Color(red: 0.08, green: 0.19, blue: 0.22)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 20)).overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
-    }
-    private func stat(_ title: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 6) { Text(title).font(.system(size: 10)).foregroundStyle(Color.muted); Text(value).font(.system(size: 12, weight: .medium)) } }
-    private func feature(_ destination: Destination, _ title: String, _ detail: String, _ symbol: String, _ color: Color) -> some View {
-        Button { model.destination = destination } label: {
-            VStack(alignment: .leading, spacing: 12) { HStack { Image(systemName: symbol).font(.system(size: 20)).foregroundStyle(color); Spacer(); Image(systemName: "arrow.up.right").foregroundStyle(Color.muted).font(.system(size: 10)) }; Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(.white); Text(detail).font(.system(size: 10)).foregroundStyle(Color.muted) }.padding(19).frame(maxWidth: .infinity, alignment: .leading).background(Color.panel, in: RoundedRectangle(cornerRadius: 15)).overlay(RoundedRectangle(cornerRadius: 15).stroke(Color.line))
-        }.buttonStyle(.plain)
+    private func quickStep(_ number: String, _ title: String, _ detail: String) -> some View {
+        Card(padding: 18) {
+            HStack(alignment: .top, spacing: 12) {
+                Text(number).font(.system(size: 14, weight: .semibold, design: .rounded)).foregroundStyle(Color.mint).frame(width: 28, height: 28).background(Color.mint.opacity(0.10), in: Circle())
+                VStack(alignment: .leading, spacing: 7) { Text(title).font(.system(size: 13, weight: .semibold)); Text(detail).font(.system(size: 11)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true) }
+            }.frame(maxWidth: .infinity, minHeight: 60, alignment: .topLeading)
+        }
     }
 }
 struct EmptyDevice: View {
     @ObservedObject var model: AppModel
     var body: some View {
-        VStack(spacing: 20) { Image(systemName: "iphone.and.arrow.forward").font(.system(size: 52, weight: .ultraLight)).foregroundStyle(Color.muted); Text("先建立一条连接").font(.system(size: 24, weight: .medium)); Text("无需手机，可以先启动本地演示设备。").foregroundStyle(Color.muted); ActionButton(title: "开始本地体验", symbol: "play.fill", prominent: true) { Task { await model.startDemo() } }.disabled(model.connecting) }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 20) {
+            Image(systemName: "iphone.and.arrow.forward").font(.system(size: 52, weight: .ultraLight)).foregroundStyle(Color.muted)
+            Text("连接手机，开始使用").font(.system(size: 24, weight: .medium))
+            Text("用数据线连接手机，并在手机上确认调试授权。\n连接工具已内置，无需下载或配置路径。")
+                .multilineTextAlignment(.center).foregroundStyle(Color.muted).lineSpacing(7)
+            ActionButton(title: model.connecting ? "正在连接…" : "连接手机", symbol: "cable.connector", prominent: true) { Task { await model.connectPhone() } }.disabled(model.connecting || !model.componentReady)
+            Button("查看连接步骤") { model.showConnectionGuide = true }.buttonStyle(.plain).foregroundStyle(Color.accent)
+            if model.connectionTitle != "准备连接手机" { Text(model.connectionTitle).foregroundStyle(Color.mint); Button("前往连接页面") { model.destination = .settings }.buttonStyle(.plain).foregroundStyle(Color.accent) }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 struct MirrorView: View {
@@ -172,7 +176,7 @@ struct MirrorView: View {
         if !model.connected { EmptyDevice(model: model) } else {
             HStack(alignment: .top, spacing: 22) {
                 VStack(spacing: 14) {
-                    HStack { Pill(text: model.isDemo ? "LOCAL DEMO" : "HDC · 截图刷新"); Spacer(); Text(model.paused ? "已暂停" : "\(model.fps, specifier: "%.1f") fps").foregroundStyle(Color.muted).font(.system(size: 11, design: .monospaced)) }
+                    HStack { Pill(text: "手机画面"); Spacer(); Text(model.paused ? "已暂停" : "\(model.fps, specifier: "%.1f") fps").foregroundStyle(Color.muted).font(.system(size: 11, design: .monospaced)) }
                     InteractiveScreen(image: model.image, screenWidth: model.device?.width ?? 0, screenHeight: model.device?.height ?? 0, enabled: model.controlEnabled && !model.paused) { event in Task { await model.control(event) } }
                         .clipShape(RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.line)).frame(maxWidth: .infinity, maxHeight: .infinity)
                     HStack(spacing: 20) {
@@ -206,7 +210,7 @@ struct MirrorView: View {
                             row("最近取帧", "\(Int(model.latency)) ms")
                             row("累计帧数", "\(model.frames)")
                             row("录制", model.recording ? "进行中 · 无音频" : "未开始")
-                            Text(model.isDemo ? "画面来自本机演示服务，不代表真实手机性能。" : "此版本用截图轮询，无法达到硬件编码视频流的流畅度。").font(.system(size: 10)).foregroundStyle(Color.muted).lineSpacing(4)
+                            Text("当前画面按所选间隔刷新；录屏不包含声音。").font(.system(size: 10)).foregroundStyle(Color.muted).lineSpacing(4)
                         }
                     }
                 }.frame(width: 280)
@@ -222,10 +226,10 @@ struct FilesView: View {
     var body: some View {
         if !model.connected { EmptyDevice(model: model) } else {
             VStack(spacing: 18) {
-                HStack { Image(systemName: "folder").foregroundStyle(Color.mint); if model.isDemo { Text("演示伴侣 / 文件").foregroundStyle(Color.muted) } else { TextField("设备绝对路径", text: $model.currentPath).textFieldStyle(.roundedBorder).onSubmit { Task { await model.refreshFiles() } } }; Spacer(); ActionButton(title: "刷新", symbol: "arrow.clockwise") { Task { await model.refreshFiles() } }; ActionButton(title: "发送文件", symbol: "plus", prominent: true) { Task { await model.chooseSendFiles() } }.disabled(model.busy) }
-                VStack(spacing: 12) { Image(systemName: "tray.and.arrow.down").font(.system(size: 30, weight: .light)).foregroundStyle(Color.mint); Text("把文件拖到这里").font(.system(size: 16, weight: .medium)); Text(model.isDemo ? "真实字节传输到本机演示伴侣 · 单文件最大 16 MB" : "发送至当前设备目录 · 单文件最大 256 MB · 不覆盖同名文件").font(.system(size: 11)).foregroundStyle(Color.muted) }.frame(maxWidth: .infinity).frame(height: 140).background(Color.mint.opacity(dropTargeted ? 0.1 : 0.025), in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.mint.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [6, 5])))
+                HStack { Image(systemName: "folder").foregroundStyle(Color.mint); TextField("设备目录", text: $model.currentPath).textFieldStyle(.roundedBorder).onSubmit { Task { await model.refreshFiles() } }; Spacer(); ActionButton(title: "刷新", symbol: "arrow.clockwise") { Task { await model.refreshFiles() } }; ActionButton(title: "发送文件", symbol: "plus", prominent: true) { Task { await model.chooseSendFiles() } }.disabled(model.busy) }
+                VStack(spacing: 12) { Image(systemName: "tray.and.arrow.down").font(.system(size: 30, weight: .light)).foregroundStyle(Color.mint); Text("把文件拖到这里").font(.system(size: 16, weight: .medium)); Text("发送至当前设备目录 · 单文件最大 256 MB · 不覆盖同名文件").font(.system(size: 11)).foregroundStyle(Color.muted) }.frame(maxWidth: .infinity).frame(height: 140).background(Color.mint.opacity(dropTargeted ? 0.1 : 0.025), in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.mint.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [6, 5])))
                     .dropDestination(for: URL.self) { urls, _ in Task { await model.sendFiles(urls) }; return !urls.isEmpty && !model.busy } isTargeted: { dropTargeted = $0 }
-                if !model.isDemo { Text("HDC 只能访问调试用户有权限的目录。/data/local/tmp 是调试目录，不是手机“下载”或图库；相册需要手机伴侣授权。").font(.system(size: 11)).foregroundStyle(Color.orange).frame(maxWidth: .infinity, alignment: .leading) }
+                Text("此页显示手机允许访问的调试目录，不是手机的“下载”或完整图库。").font(.system(size: 11)).foregroundStyle(Color.muted).frame(maxWidth: .infinity, alignment: .leading)
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(model.files) { file in
@@ -252,17 +256,19 @@ struct ClipboardView: View {
         if !model.connected { EmptyDevice(model: model) } else {
             VStack(alignment: .leading, spacing: 20) {
                 Card {
-                    HStack(spacing: 14) { Image(systemName: "hand.raised").font(.system(size: 25)).foregroundStyle(Color.mint); VStack(alignment: .leading, spacing: 6) { Text("每次读写，由你发起").font(.system(size: 16, weight: .medium)); Text("不在后台监视 Mac 剪贴板，也不自动覆盖已有内容。").foregroundStyle(Color.muted).font(.system(size: 12)) }; Spacer(); Pill(text: model.isDemo ? "演示伴侣剪贴板" : "HDC 能力受限", color: model.isDemo ? .mint : .orange) }
+                    HStack(spacing: 14) { Image(systemName: "hand.raised").font(.system(size: 25)).foregroundStyle(Color.mint); VStack(alignment: .leading, spacing: 6) { Text("每次读写，由你发起").font(.system(size: 16, weight: .medium)); Text("不在后台监视 Mac 剪贴板，也不自动覆盖已有内容。").foregroundStyle(Color.muted).font(.system(size: 12)) }; Spacer(); Pill(text: "文字接力", color: .mint) }
                 }
-                if !model.canReadClipboard { Text("HDC 没有公开的系统剪贴板双向接口。本页可读取 Mac 剪贴板，再到“实时投屏”输入文字；真正双向同步需手机伴侣 App。").font(.system(size: 12)).foregroundStyle(Color.orange).lineSpacing(5) }
+                if !model.canReadClipboard { Text("先在“实时投屏”中开启反向控制，点击手机输入框，再将这里的文字输入手机。暂不支持读取或改写手机的系统剪贴板。").font(.system(size: 12)).foregroundStyle(Color.orange).lineSpacing(5) }
                 HStack { Text("待传递的文字").fontWeight(.medium); Spacer(); Text("不会保存到运行日志").font(.system(size: 11)).foregroundStyle(Color.muted) }
                 TextEditor(text: $model.clipboardText).font(.system(size: 16)).scrollContentBackground(.hidden).padding(18).background(Color.panel, in: RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.line))
                 HStack(spacing: 12) {
                     ActionButton(title: "读取 Mac 剪贴板", symbol: "doc.on.clipboard") { model.readMacClipboard() }
                     ActionButton(title: "复制到 Mac", symbol: "doc.on.doc") { model.copyToMac() }
                     Spacer()
-                    ActionButton(title: "从设备读取", symbol: "arrow.down") { Task { await model.readClipboard() } }.disabled(!model.canReadClipboard)
-                    ActionButton(title: "写入设备", symbol: "arrow.up", prominent: true) { Task { await model.writeClipboard() } }.disabled(!model.canReadClipboard)
+                    ActionButton(title: "输入到手机", symbol: "arrow.up.right", prominent: true) {
+                        model.inputText = model.clipboardText
+                        Task { await model.sendInput() }
+                    }.disabled(!model.controlEnabled || model.paused || model.clipboardText.isEmpty)
                 }
             }.padding(28)
         }
@@ -273,8 +279,8 @@ struct GalleryView: View {
     var body: some View {
         if !model.connected { EmptyDevice(model: model) } else {
             VStack(alignment: .leading, spacing: 18) {
-                HStack { Text(model.isDemo ? "演示相册" : "当前可访问目录中的图片").font(.system(size: 20, weight: .semibold)); Pill(text: "\(model.photoFiles.count) 张", color: .muted); Spacer(); ActionButton(title: "刷新", symbol: "arrow.clockwise") { Task { await model.refreshFiles() } } }
-                Text(model.isDemo ? "以下图片由程序绘制，不是用户照片。保存会下载伴侣中的原文件。" : "仅显示调试目录中有权限读取的图片，不代表已获得手机图库权限。可在“文件互传”切换目录。")
+                HStack { Text("当前目录的图片").font(.system(size: 20, weight: .semibold)); Pill(text: "\(model.photoFiles.count) 张", color: .muted); Spacer(); ActionButton(title: "刷新", symbol: "arrow.clockwise") { Task { await model.refreshFiles() } } }
+                Text("仅显示当前目录中允许读取的图片。可在“文件互传”中切换目录，暂不支持完整手机图库。")
                     .font(.system(size: 12)).foregroundStyle(Color.muted)
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 18)], spacing: 18) {
@@ -303,36 +309,98 @@ struct CameraView: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+struct ConnectionPanel: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack { Text("连接手机").font(.system(size: 19, weight: .semibold)); Spacer(); Pill(text: model.componentReady ? "连接组件已内置" : "连接组件不完整", color: model.componentReady ? .mint : .orange) }
+                Text(model.componentStatus).font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                Picker("连接方式", selection: $model.connectionMethod) { ForEach(ConnectionMethod.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).frame(maxWidth: 360).disabled(model.connecting || model.connected).onChange(of: model.connectionMethod) { _, _ in model.resetConnectionChoices() }
+                if model.connectionMethod == .usb {
+                    VStack(alignment: .leading, spacing: 10) {
+                        step("1", "用数据线连接手机与 Mac。")
+                        step("2", "在手机设置中开启 USB 调试，并保持解锁。")
+                        step("3", "在手机弹出的授权窗口中点击允许。")
+                    }
+                } else {
+                    Text("让手机与 Mac 连接同一 Wi-Fi，在手机“开发者选项 → 无线调试”中查看连接信息。").font(.system(size: 12)).foregroundStyle(Color.muted).fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 7) { Text("手机 IP 地址").font(.system(size: 11)).foregroundStyle(Color.muted); TextField("例如 192.168.1.8", text: $model.wirelessHost).textFieldStyle(.roundedBorder) }
+                        VStack(alignment: .leading, spacing: 7) { Text("手机显示的端口").font(.system(size: 11)).foregroundStyle(Color.muted); TextField("填写当前端口", text: $model.wirelessPort).textFieldStyle(.roundedBorder) }.frame(width: 170)
+                    }.disabled(model.connecting || model.connected)
+                    Text("端口以手机当前显示为准，无需填写配对码。").font(.system(size: 11)).foregroundStyle(Color.muted)
+                }
+                Divider().overlay(Color.line)
+                HStack(alignment: .top, spacing: 12) {
+                    if model.connecting { ProgressView().controlSize(.small).padding(.top, 3) } else { Image(systemName: model.connected ? "checkmark.circle.fill" : "iphone").foregroundStyle(Color.mint).padding(.top, 3) }
+                    VStack(alignment: .leading, spacing: 6) { Text(model.connected ? (model.device?.name ?? "手机已连接") : model.connectionTitle).font(.system(size: 14, weight: .medium)); Text(model.connectionDetail).font(.system(size: 12)).foregroundStyle(Color.muted).lineSpacing(5).fixedSize(horizontal: false, vertical: true) }
+                }
+                if !model.devices.isEmpty {
+                    HStack { Picker("选择手机", selection: $model.selectedTarget) { ForEach(model.devices, id: \.self) { Text($0).tag($0) } }; ActionButton(title: "连接选中手机", symbol: "link", prominent: true) { Task { await model.connectSelectedPhone() } }.disabled(model.connecting || model.busy) }
+                }
+                HStack(spacing: 15) {
+                    ActionButton(title: model.connecting ? "正在连接…" : model.connected ? "打开手机投屏" : "连接手机", symbol: model.connected ? "rectangle.on.rectangle" : "link", prominent: true) {
+                        if model.connected { model.destination = .mirror } else { Task { await model.connectPhone() } }
+                    }.disabled(model.connecting || model.busy || !model.componentReady)
+                    Button("查看手机设置步骤") { model.showConnectionGuide = true }.buttonStyle(.plain).foregroundStyle(Color.accent)
+                    Spacer()
+                    if model.connected { Button("断开连接") { Task { await model.disconnect() } }.disabled(model.connecting || model.busy) }
+                }
+            }
+        }
+    }
+    private func step(_ number: String, _ text: String) -> some View {
+        HStack(spacing: 11) { Text(number).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.mint).frame(width: 22, height: 22).background(Color.mint.opacity(0.1), in: Circle()); Text(text).font(.system(size: 12)).foregroundStyle(Color.muted) }
+    }
+}
+struct ConnectionGuideView: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack { Text("首次连接手机").font(.system(size: 25, weight: .semibold)); Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.defaultAction) }
+            Text("Mac 上无需额外安装工具。请在手机完成以下设置后，回到鸿桥点击“连接手机”。").font(.system(size: 13)).foregroundStyle(Color.muted).lineSpacing(5)
+            guide("1", "开启开发者选项", "在手机设置中搜索“关于”，进入关于本机，连续快速点击“软件版本号”7 次，按提示确认并重启。已开启的手机可跳过此步。")
+            guide("2", "开启 USB 调试", "在手机设置中搜索“开发者选项”，进入后开启 USB 调试。使用支持数据传输的线连接 Mac，保持手机解锁。")
+            guide("3", "允许这台 Mac 连接", "在手机弹出的调试授权窗口中确认允许，然后点击鸿桥的“连接手机”。只有一台已授权手机时会自动打开投屏。")
+            Text("使用无线连接时，在手机开启“无线调试”，将页面上的 IP 地址与端口填入鸿桥。首次连接仍需在手机上确认授权。").font(.system(size: 12)).foregroundStyle(Color.muted).lineSpacing(5)
+            Link("查看华为官方开发者选项说明", destination: URL(string: "https://consumer.huawei.com/cn/support/content/zh-cn02842747/")!).font(.system(size: 12)).foregroundStyle(Color.accent)
+        }.padding(32).frame(width: 620).foregroundStyle(.white).background(Color.canvas).preferredColorScheme(.dark)
+    }
+    private func guide(_ number: String, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 15) {
+            Text(number).font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.mint).frame(width: 30, height: 30).background(Color.mint.opacity(0.10), in: Circle())
+            VStack(alignment: .leading, spacing: 7) { Text(title).font(.system(size: 15, weight: .medium)); Text(detail).font(.system(size: 12)).foregroundStyle(Color.muted).lineSpacing(5).fixedSize(horizontal: false, vertical: true) }
+        }
+    }
+}
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack(spacing: 18) {
-                    Card { VStack(alignment: .leading, spacing: 14) { HStack { Image(systemName: "desktopcomputer").foregroundStyle(Color.mint); Text("本地演示").fontWeight(.semibold); Spacer(); Pill(text: "无需手机") }; Text("内置伴侣经本机 HTTP 接口传输图像、操作、文字与文件。不会发现或连接真实手机。").font(.system(size: 12)).foregroundStyle(Color.muted).lineSpacing(5); ActionButton(title: "启动演示设备", symbol: "play.fill", prominent: true) { Task { await model.startDemo() } }.disabled(model.connecting || model.busy) } }
-                    Card { VStack(alignment: .leading, spacing: 14) { HStack { Image(systemName: "cable.connector").foregroundStyle(Color.accent); Text("真实设备 · HDC").fontWeight(.semibold); Spacer(); Pill(text: "待真机验证", color: .orange) }; Text("使用官方 SDK 的调试工具，经 USB 或用户指定的无线调试端口连接。只在点击按钮后操作。").font(.system(size: 12)).foregroundStyle(Color.muted).lineSpacing(5); Text("本轮未使用手机").font(.system(size: 12)).foregroundStyle(Color.orange).padding(.vertical, 8) } }
-                }
+                ConnectionPanel(model: model)
                 Card {
-                    VStack(alignment: .leading, spacing: 15) {
-                        Text("HDC 连接设置").font(.system(size: 16, weight: .semibold))
-                        HStack { TextField("选择 DevEco SDK / toolchains / hdc", text: $model.hdcPath).textFieldStyle(.roundedBorder); Button("选择工具…") { model.chooseHDC() }; Button("发现设备") { Task { await model.discoverDevices() } }.disabled(model.hdcPath.isEmpty || model.busy) }
-                        Text("不使用灵犀应用包中的 HDC。工具请从自己的华为开发环境中选择；应用不会自动扫描、安装或启动第三方工具。").font(.system(size: 10)).foregroundStyle(Color.muted).lineSpacing(4)
-                        HStack { Text("已授权设备").foregroundStyle(Color.muted).frame(width: 80, alignment: .leading); Picker("", selection: $model.selectedTarget) { Text("请选择").tag(""); ForEach(model.devices, id: \.self) { Text($0).tag($0) } }.labelsHidden(); Button("连接设备") { Task { await model.connectHDC() } }.disabled(model.selectedTarget.isEmpty || model.busy || model.connecting) }
-                        Divider().overlay(Color.line)
-                        HStack { Text("无线调试").foregroundStyle(Color.muted).frame(width: 80, alignment: .leading); TextField("手机 IPv4:当前调试端口", text: $model.wirelessEndpoint).textFieldStyle(.roundedBorder); Button("连接此地址") { Task { await model.wirelessConnect() } }.disabled(model.hdcPath.isEmpty || model.wirelessEndpoint.isEmpty || model.busy) }
-                        Text("端口必须从手机“无线调试”页读取，不是固定端口或配对码。首次连接需在手机上确认信任。应用不修改手机系统设置。").font(.system(size: 10)).foregroundStyle(Color.muted).lineSpacing(4)
-                    }
+                    HStack { VStack(alignment: .leading, spacing: 8) { Text("画面刷新间隔").fontWeight(.medium); Text("间隔越短，刷新越频繁；实际速度取决于手机与连接状态。").font(.system(size: 11)).foregroundStyle(Color.muted) }; Spacer(); Picker("", selection: $model.frameInterval) { Text("0.25 秒").tag(0.25); Text("0.5 秒").tag(0.5); Text("1 秒").tag(1.0); Text("2 秒").tag(2.0) }.frame(width: 110).labelsHidden() }
                 }
-                Card {
-                    HStack { VStack(alignment: .leading, spacing: 8) { Text("取帧间隔").fontWeight(.medium); Text("截图轮询模式；更快的设置不会突破设备实际处理速度。").font(.system(size: 11)).foregroundStyle(Color.muted) }; Spacer(); Picker("", selection: $model.frameInterval) { Text("0.25 秒").tag(0.25); Text("0.5 秒").tag(0.5); Text("1 秒").tag(1.0); Text("2 秒").tag(2.0) }.frame(width: 110).labelsHidden() }
-                }
-                Card {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack { Text("本轮运行记录").font(.system(size: 16, weight: .semibold)); Spacer(); Button("导出诊断…") { model.exportDiagnostics() } }
-                        Text("不记录输入文字、剪贴板内容、配对令牌或截图。未连接手机时的成功仅说明本地流程通过。").font(.system(size: 11)).foregroundStyle(Color.muted)
-                        ScrollView { VStack(alignment: .leading, spacing: 8) { ForEach(Array(model.logs.prefix(30).enumerated()), id: \.offset) { _, value in Text(value).font(.system(size: 10, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }; if model.logs.isEmpty { Text("暂无运行记录").foregroundStyle(Color.muted) } }.padding(12) }.frame(height: 170).background(Color.canvas, in: RoundedRectangle(cornerRadius: 9))
-                    }
-                }
+                DisclosureGroup("关于鸿桥与开源组件") {
+                    HStack {
+                        Text("鸿桥 0.2.0 · Apple Silicon").font(.system(size: 12)).foregroundStyle(Color.muted)
+                        Spacer()
+                        Button("查看开源组件说明") {
+                            if let url = Bundle.main.url(forResource: "开源组件说明", withExtension: "md") { NSWorkspace.shared.open(url) }
+                        }
+                    }.padding(.top, 12)
+                }.font(.system(size: 12)).foregroundStyle(Color.muted)
+                DisclosureGroup("连接诊断") {
+                    Card {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack { Text("运行记录").font(.system(size: 16, weight: .semibold)); Spacer(); Button("导出诊断…") { model.exportDiagnostics() } }
+                            Text("不主动保存输入文字、剪贴板内容或画面。诊断文件不会自动上传。").font(.system(size: 11)).foregroundStyle(Color.muted)
+                            ScrollView { VStack(alignment: .leading, spacing: 8) { ForEach(Array(model.logs.prefix(30).enumerated()), id: \.offset) { _, value in Text(value).font(.system(size: 10, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }; if model.logs.isEmpty { Text("暂无运行记录").foregroundStyle(Color.muted) } }.padding(12) }.frame(height: 150).background(Color.canvas, in: RoundedRectangle(cornerRadius: 9))
+                        }
+                    }.padding(.top, 10)
+                }.font(.system(size: 12)).foregroundStyle(Color.muted)
             }.padding(28)
         }
     }

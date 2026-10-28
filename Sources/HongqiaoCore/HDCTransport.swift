@@ -7,7 +7,7 @@ public final class HDCTransport: BridgeTransport {
     private let remoteScreenshot: String
     public let capabilities = Capabilities(clipboardRead: false, clipboardWrite: false, photoLibrary: false)
     public init(executable: URL, target: String) throws {
-        guard FileManager.default.isExecutableFile(atPath: executable.path) else { throw BridgeError("请选择官方 SDK 中可执行的 hdc 文件") }
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else { throw BridgeError("内置连接组件不可用，请重新安装完整的鸿桥") }
         guard !target.isEmpty, !target.hasPrefix("-"), !target.contains("\n") else { throw BridgeError("设备标识无效") }
         self.executable = executable; self.target = target
         let id = UUID().uuidString.lowercased()
@@ -22,24 +22,25 @@ public final class HDCTransport: BridgeTransport {
         return result.output
     }
     private func shell(_ arguments: [String]) async throws -> String { try await run(["shell", Shell.command(arguments)]) }
-    public static func discover(executable: URL) async throws -> [String] {
+    public static func scan(executable: URL) async throws -> DeviceScan {
         let result = try await ProcessRunner.run(executable, ["list", "targets"])
-        guard result.status == 0 else { throw BridgeError(result.output) }
-        return result.output.split(whereSeparator: \.isNewline).map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && !$0.contains("[Empty]") && !$0.hasPrefix("[Info]") }
+        guard result.status == 0 else { throw BridgeError("未能启动连接服务，请重新打开鸿桥后重试。") }
+        return try DeviceScan.parse(result.output)
     }
+    public static func discover(executable: URL) async throws -> [String] { try await scan(executable: executable).targets }
     public static func connectWireless(executable: URL, endpoint: String) async throws {
-        let parts = endpoint.split(separator: ":")
-        guard parts.count == 2, let port = Int(parts[1]), (1...65535).contains(port), parts[0].split(separator: ".").count == 4,
-            parts[0].split(separator: ".").allSatisfy({ Int($0).map { (0...255).contains($0) } ?? false }) else { throw BridgeError("请输入 IPv4:端口，例如 192.168.1.8:41239") }
+        let parts = endpoint.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { throw BridgeError("请检查手机 IP 地址与端口") }
+        _ = try WirelessAddress.endpoint(host: String(parts[0]), port: String(parts[1]))
         let r = try await ProcessRunner.run(executable, ["tconn", endpoint])
-        guard r.status == 0, !r.output.lowercased().contains("fail") else { throw BridgeError(r.output) }
+        guard r.status == 0, !r.output.lowercased().contains("fail") else { throw BridgeError("无线连接未成功。请检查两台设备是否在同一 Wi-Fi、手机当前地址与端口是否正确，并在手机确认授权。") }
     }
     public func connect() async throws -> Device {
         let ids = try await Self.discover(executable: executable)
         guard ids.contains(target) else { throw BridgeError("设备未连接或未授权，请先在手机确认调试授权") }
         let model = try await shell(["param", "get", "const.product.model"])
         let system = try await shell(["param", "get", "const.product.software.version"])
-        return Device(id: target, name: model.trimmingCharacters(in: .whitespacesAndNewlines), system: system.trimmingCharacters(in: .whitespacesAndNewlines), width: 0, height: 0, isDemo: false)
+        return Device(id: target, name: model.trimmingCharacters(in: .whitespacesAndNewlines), system: system.trimmingCharacters(in: .whitespacesAndNewlines), width: 0, height: 0)
     }
     public func capture() async throws -> Frame {
         let start = Date()

@@ -2,7 +2,6 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import HongqiaoCore
-import HongqiaoPeer
 
 enum Destination: String, CaseIterable, Identifiable {
     case overview = "工作台", mirror = "实时投屏", files = "文件互传", clipboard = "剪贴板", gallery = "相册", camera = "手机摄像头", settings = "连接与诊断"
@@ -18,9 +17,13 @@ enum Destination: String, CaseIterable, Identifiable {
         case .clipboard: return "一段文字，在两端继续。"
         case .gallery: return "浏览图片，按需保存原文件。"
         case .camera: return "系统摄像头扩展需要独立签名与手机媒体源。"
-        case .settings: return "选择连接方式，查看真实状态与运行记录。"
+        case .settings: return "按提示连接手机，查看连接状态。"
         }
     }
+}
+enum ConnectionMethod: String, CaseIterable, Identifiable {
+    case usb = "数据线连接", wireless = "无线连接"
+    var id: String { rawValue }
 }
 @MainActor final class AppModel: ObservableObject {
     @Published var destination: Destination = .overview
@@ -39,22 +42,27 @@ enum Destination: String, CaseIterable, Identifiable {
     @Published var currentPath = "/"
     @Published var clipboardText = ""
     @Published var inputText = ""
-    @Published var hdcPath = UserDefaults.standard.string(forKey: "hdcPath") ?? ""
+    @Published var connectionMethod: ConnectionMethod = .usb
+    @Published var connectionTitle = "准备连接手机"
+    @Published var connectionDetail = "用数据线连接手机，开启 USB 调试，并在手机上确认允许连接。"
+    @Published var showConnectionGuide = false
+    let hdcExecutable: URL?
+    let componentStatus: String
+    var componentReady: Bool { hdcExecutable != nil }
     @Published var devices: [String] = []
     @Published var selectedTarget = ""
-    @Published var wirelessEndpoint = ""
+    @Published var wirelessHost = ""
+    @Published var wirelessPort = ""
     @Published var error: String?
-    @Published var notice = "尚未连接设备。可先体验本地演示。"
+    @Published var notice = "用数据线连接手机后，点击“连接手机”。"
     @Published var logs: [String] = []
     @Published var transfers: [String] = []
     @Published var frameInterval = 0.5
     private var transport: (any BridgeTransport)?
-    private var peer: DemoServer?
     private var captureTask: Task<Void, Never>?
     private var generation = UUID()
     private var fileGeneration = UUID()
     private let recorder = MirrorRecorder()
-    var isDemo: Bool { device?.isDemo ?? false }
     var connected: Bool { device != nil }
     var canReadClipboard: Bool { transport?.capabilities.clipboardRead ?? false }
     var photoFiles: [RemoteFile] { files.filter { $0.isImage && !$0.directory } }
@@ -63,38 +71,81 @@ enum Destination: String, CaseIterable, Identifiable {
         logs.insert("\(time)  \(text)", at: 0); if logs.count > 150 { logs.removeLast() }
     }
     func report(_ e: Error) { error = e.localizedDescription; log("失败：\(e.localizedDescription.prefix(350))") }
-    func startDemo() async {
-        guard !connecting else { return }; connecting = true; defer { connecting = false }
-        await disconnect()
+    init(bundleURL: URL = Bundle.main.bundleURL) {
         do {
-            let peer = DemoServer(); try await peer.start(); self.peer = peer
-            let bridge = try PeerTransport(baseURL: peer.baseURL, token: peer.token)
-            try await attach(bridge)
-            notice = "本地演示已连接；所有手机内容均在这台 Mac 内模拟。"
-            log("本地演示会话启动，仅监听回环地址；未搜索或连接手机")
-        } catch { peer?.stop(); peer = nil; report(error) }
+            hdcExecutable = try BundledHDC.resolve(in: bundleURL)
+            componentStatus = "连接组件已内置 · 无需下载安装"
+        } catch {
+            hdcExecutable = nil
+            componentStatus = error.localizedDescription
+        }
     }
-    func chooseHDC() {
-        let panel = NSOpenPanel(); panel.title = "选择官方 HarmonyOS SDK 的 hdc"; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url { hdcPath = url.path; UserDefaults.standard.set(hdcPath, forKey: "hdcPath") }
+    func resetConnectionChoices() {
+        guard !connecting else { return }
+        devices = []; selectedTarget = ""
+        connectionTitle = "准备连接手机"
+        connectionDetail = connectionMethod == .usb ? "用数据线连接手机，开启 USB 调试，并在手机上确认允许连接。" : "将手机与 Mac 接入同一 Wi-Fi，填写手机无线调试页面显示的地址与端口。"
     }
-    func discoverDevices() async {
-        guard !hdcPath.isEmpty else { error = "请先选择官方 SDK 中的 hdc 工具"; return }
-        busy = true; defer { busy = false }
-        do { devices = try await HDCTransport.discover(executable: URL(fileURLWithPath: hdcPath)); selectedTarget = devices.first ?? ""; notice = devices.isEmpty ? "未发现已授权设备" : "发现 \(devices.count) 台设备"; log("已执行用户发起的 HDC 设备发现") } catch { report(error) }
+    func connectPhone() async {
+        guard !connecting, !busy else { return }
+        guard let executable = hdcExecutable else { error = componentStatus; return }
+        connecting = true; defer { connecting = false }
+        error = nil; devices = []; selectedTarget = ""
+        connectionTitle = "正在查找手机…"
+        connectionDetail = "请保持手机解锁，并确认手机上的连接授权提示。"
+        do {
+            var endpoint: String?
+            if connectionMethod == .wireless {
+                endpoint = try WirelessAddress.endpoint(host: wirelessHost, port: wirelessPort)
+                try await HDCTransport.connectWireless(executable: executable, endpoint: endpoint!)
+            }
+            let all = try await HDCTransport.scan(executable: executable)
+            let eligible = endpoint.map { address in all.targets.filter { $0 == address } } ?? all.targets.filter { !$0.contains(":") }
+            let scan = DeviceScan(targets: eligible, needsAuthorization: all.needsAuthorization)
+            switch ConnectionDecision.plan(scan) {
+            case .waitForDevice:
+                connectionTitle = connectionMethod == .usb ? "还没有发现手机" : "无线连接尚未就绪"
+                connectionDetail = connectionMethod == .usb ? "检查数据线是否支持传输数据，确认手机已开启 USB 调试，然后点击重试。" : "确认两台设备在同一 Wi-Fi、无线调试已开启，并核对手机当前显示的地址与端口。"
+                notice = connectionDetail
+            case .waitForAuthorization:
+                connectionTitle = "请在手机上允许连接"
+                connectionDetail = "保持手机解锁，在弹出的调试授权窗口中点击允许，然后再次点击“连接手机”。"
+                notice = connectionDetail
+            case .connect(let target):
+                selectedTarget = target
+                try await connectTarget(target, executable: executable)
+            case .choose(let targets):
+                devices = targets; selectedTarget = targets[0]
+                connectionTitle = "发现多台设备，请选择手机"
+                connectionDetail = "为避免连接到其他设备，请选择要连接的手机，再点击“连接选中手机”。"
+                notice = connectionDetail
+            }
+        } catch {
+            connectionTitle = "暂时无法连接"
+            connectionDetail = error.localizedDescription
+            report(error)
+        }
     }
-    func wirelessConnect() async {
-        busy = true; defer { busy = false }
-        do { try await HDCTransport.connectWireless(executable: URL(fileURLWithPath: hdcPath), endpoint: wirelessEndpoint); devices = try await HDCTransport.discover(executable: URL(fileURLWithPath: hdcPath)); selectedTarget = devices.first ?? ""; log("无线调试连接命令已完成") } catch { report(error) }
+    func connectSelectedPhone() async {
+        guard !connecting, !busy, let executable = hdcExecutable, devices.contains(selectedTarget) else { return }
+        connecting = true; defer { connecting = false }
+        do { try await connectTarget(selectedTarget, executable: executable) }
+        catch { connectionTitle = "暂时无法连接"; connectionDetail = error.localizedDescription; report(error) }
     }
-    func connectHDC() async {
-        guard !connecting else { return }; connecting = true; defer { connecting = false }
+    private func connectTarget(_ target: String, executable: URL) async throws {
         await disconnect()
-        do { let bridge = try HDCTransport(executable: URL(fileURLWithPath: hdcPath), target: selectedTarget); try await attach(bridge); currentPath = "/data/local/tmp"; notice = "HDC 已连接。当前为截图刷新，非视频流；帧率取决于设备。"; log("HDC 会话启动；尚未开启控制"); await refreshFiles() } catch { report(error) }
+        connectionTitle = "正在连接手机…"
+        let bridge = try HDCTransport(executable: executable, target: target)
+        try await attach(bridge)
+        connectionTitle = "手机已连接"
+        connectionDetail = "可以开始投屏；需要操作手机时，在投屏页开启反向控制。"
+        notice = connectionDetail; devices = []; selectedTarget = ""
+        log("手机连接完成；控制默认关闭")
+        destination = .mirror
     }
     private func attach(_ bridge: any BridgeTransport) async throws {
         let info = try await bridge.connect(); device = info; transport = bridge
-        generation = UUID(); frames = 0; paused = false; controlEnabled = false; currentPath = info.isDemo ? "/" : "/data/local/tmp"; files = []; photos = [:]
+        generation = UUID(); frames = 0; paused = false; controlEnabled = false; currentPath = "/data/local/tmp"; files = []; photos = [:]
         let id = generation
         captureTask = Task { [weak self] in
             var failures = 0
@@ -130,12 +181,11 @@ enum Destination: String, CaseIterable, Identifiable {
     func disconnect() async {
         generation = UUID(); let oldTask = captureTask; oldTask?.cancel(); captureTask = nil
         let old = transport; transport = nil; device = nil; image = nil; files = []; photos = [:]; controlEnabled = false; paused = false
-        // Cancel local HTTP reads before waiting; finish HDC screenshot work before remote cleanup.
-        if old is PeerTransport { await old?.disconnect() }
-        peer?.stop(); peer = nil
         await oldTask?.value
         if recording { await stopRecording() }
-        if !(old is PeerTransport) { await old?.disconnect() }
+        await old?.disconnect()
+        connectionTitle = "准备连接手机"
+        connectionDetail = "用数据线连接手机后，点击“连接手机”。"
         notice = "已断开连接"; log("会话已结束")
     }
     func control(_ event: ControlEvent) async {
@@ -175,8 +225,8 @@ enum Destination: String, CaseIterable, Identifiable {
             do {
                 let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
                 let attributes = try url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey, .isSymbolicLinkKey])
-                let limit = isDemo ? 16 * 1024 * 1024 : 256 * 1024 * 1024
-                guard attributes.isDirectory == false, attributes.isSymbolicLink != true, (attributes.fileSize ?? Int.max) <= limit else { throw BridgeError("仅支持普通文件；演示上限 16 MB，HDC 上限 256 MB") }
+                let limit = 256 * 1024 * 1024
+                guard attributes.isDirectory == false, attributes.isSymbolicLink != true, (attributes.fileSize ?? Int.max) <= limit else { throw BridgeError("仅支持普通文件，单文件上限为 256 MB") }
                 let name = try Shell.safeName(url.lastPathComponent)
                 if files.contains(where: { $0.name == name }) { throw BridgeError("同名文件已存在，请重命名后发送") }
                 let data = try Data(contentsOf: url)
@@ -211,12 +261,12 @@ enum Destination: String, CaseIterable, Identifiable {
     func readMacClipboard() { clipboardText = NSPasteboard.general.string(forType: .string) ?? ""; notice = "已手动读取 Mac 剪贴板" }
     func saveScreenshot() {
         guard let image, let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return }
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = isDemo ? "鸿桥-演示截图.png" : "鸿桥-截图.png"
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = "鸿桥-截图.png"
         if panel.runModal() == .OK, let url = panel.url { do { try png.write(to: url, options: .atomic); log("截图已保存") } catch { report(error) } }
     }
     func startRecording() {
         guard let device, image != nil else { return }
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.quickTimeMovie]; panel.nameFieldStringValue = isDemo ? "鸿桥-演示录屏.mov" : "鸿桥-录屏.mov"
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.quickTimeMovie]; panel.nameFieldStringValue = "鸿桥-录屏.mov"
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
@@ -231,8 +281,8 @@ enum Destination: String, CaseIterable, Identifiable {
     func exportDiagnostics() {
         let panel = NSSavePanel(); panel.nameFieldStringValue = "鸿桥-诊断.txt"; panel.allowedContentTypes = [.plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let text = "鸿桥 0.1.0\n模式：\(isDemo ? "本地演示" : connected ? "HDC" : "未连接")\n画面：\(device?.width ?? 0)×\(device?.height ?? 0)\n会话帧数：\(frames)\n无手机真机验证；不包含令牌、输入文字、剪贴板或画面。\n\n" + logs.joined(separator: "\n")
+        let text = "鸿桥 0.2.0\n连接状态：\(connected ? "已连接" : "未连接")\n画面：\(device?.width ?? 0)×\(device?.height ?? 0)\n会话帧数：\(frames)\n诊断不包含输入文字、剪贴板正文或画面。\n\n" + logs.joined(separator: "\n")
         do { try text.write(to: url, atomically: true, encoding: .utf8); notice = "诊断已保存到你选择的位置" } catch { report(error) }
     }
-    func shutdown() { captureTask?.cancel(); peer?.stop() }
+    func shutdown() { captureTask?.cancel() }
 }

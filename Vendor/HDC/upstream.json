@@ -1,0 +1,18 @@
+{
+  "sdkURL": "https://repo.huaweicloud.com/openharmony/os/7.0-Beta1/L2-SDK-MAC-M1-PUBLIC.tar.gz",
+  "sdkSHA256": "881c699c82a47a29afa4a857e265de146d3ef05a575931c5448bc633d9e733d4",
+  "component": "sdk/packages/ohos-sdk/darwin/toolchains-darwin-arm64-26.0.0.25-Beta.zip",
+  "componentSHA256": "7209abcb22bfbedaf76daec2e2f27492fa802396183d6c0980db945f879a8c83",
+  "filesSHA256": {
+    "NOTICE.txt": "449f14fc9dbf2cd00f32b425798323ac395b2286f2a041382abc944afa5bd22f",
+    "libusb_shared.dylib": "fd57e067d7aa317149a2463dbae18f838d06faf381bd6bde88933baa34de6c03",
+    "hdc": "12db2d3db27447fd208dfe2588051158327afd50e725e765a23fddb5467ce7ec",
+    "oh-uni-package.json": "2eb9402c42fc2ecbadc517fb1d09ea76a9ffe7da66f7a99a329db41df95c947b"
+  },
+  "hdcVersion": "3.2.0e",
+  "libusbVersion": "1.0.28",
+  "libusbSourceURL": "https://gitcode.com/openharmony/third_party_libusb",
+  "libusbSourceCommit": "b982552012b9faf15db3bd5c714594da91df33b0",
+  "libusbSourceTag": "OpenHarmony-v7.0-Beta1",
+  "sourceArchiveSHA256": "9d427b3e083713c9b2fbf78b4372b803c6c566bfbf78283b86a774b4c5a104c7"
+}
