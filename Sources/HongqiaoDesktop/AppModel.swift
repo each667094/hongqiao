@@ -32,6 +32,8 @@ enum ConnectionMethod: String, CaseIterable, Identifiable {
     @Published var busy = false
     @Published var connecting = false
     @Published var controlEnabled = false
+    @Published var controlStatus = "点击、长按、拖动或双指滚动。右键与 Esc 返回。"
+    @Published var pendingControls = 0
     @Published var paused = false
     @Published var recording = false
     @Published var latency = 0.0
@@ -57,12 +59,13 @@ enum ConnectionMethod: String, CaseIterable, Identifiable {
     @Published var notice = "用数据线连接手机后，点击“连接手机”。"
     @Published var logs: [String] = []
     @Published var transfers: [String] = []
-    @Published var frameInterval = 0.5
+    @Published var frameInterval = 0.0
     private var transport: (any BridgeTransport)?
     private var captureTask: Task<Void, Never>?
     private var generation = UUID()
     private var fileGeneration = UUID()
     private let recorder = MirrorRecorder()
+    private var frameRateMeter = FrameRateMeter()
     var connected: Bool { device != nil }
     var canReadClipboard: Bool { transport?.capabilities.clipboardRead ?? false }
     var photoFiles: [RemoteFile] { files.filter { $0.isImage && !$0.directory } }
@@ -145,7 +148,7 @@ enum ConnectionMethod: String, CaseIterable, Identifiable {
     }
     private func attach(_ bridge: any BridgeTransport) async throws {
         let info = try await bridge.connect(); device = info; transport = bridge
-        generation = UUID(); frames = 0; paused = false; controlEnabled = false; currentPath = "/data/local/tmp"; files = []; photos = [:]
+        generation = UUID(); frameRateMeter = FrameRateMeter(); frames = 0; paused = false; controlEnabled = false; currentPath = "/data/local/tmp"; files = []; photos = [:]
         let id = generation
         captureTask = Task { [weak self] in
             var failures = 0
@@ -158,21 +161,21 @@ enum ConnectionMethod: String, CaseIterable, Identifiable {
                     guard !Task.isCancelled, self.generation == id else { return }
                     guard let bitmap = NSBitmapImageRep(data: frame.data), let newImage = NSImage(data: frame.data) else { throw BridgeError("返回数据不是有效图像") }
                     self.image = newImage; self.latency = frame.elapsedMS; self.frames += 1
-                    self.device?.width = bitmap.pixelsWide; self.device?.height = bitmap.pixelsHigh
+                    self.device?.width = frame.sourceWidth ?? bitmap.pixelsWide; self.device?.height = frame.sourceHeight ?? bitmap.pixelsHigh
                     self.recorder.append(newImage); failures = 0
-                    self.fps = 1 / max(self.frameInterval, Date().timeIntervalSince(start))
+                    self.fps = self.frameRateMeter.record(at: Date().timeIntervalSinceReferenceDate)
                 } catch {
                     guard !Task.isCancelled, self.generation == id else { return }
                     failures += 1
                     if failures == 1 { self.log("画面读取失败：\(error.localizedDescription.prefix(160))") }
                     if failures >= 3 {
-                        self.paused = true; self.controlEnabled = false
+                        self.paused = true; self.controlEnabled = false; await bridge.setCapturePaused(true)
                         if self.recording { await self.stopRecording() }
                         self.error = "连续三次无法获取画面。请检查连接与授权，恢复后点击继续。"
                         failures = 0
                     }
                 }
-                let rest = max(0.03, self.frameInterval - Date().timeIntervalSince(start))
+                let rest = max(0.001, self.frameInterval - Date().timeIntervalSince(start))
                 try? await Task.sleep(nanoseconds: UInt64(rest * 1_000_000_000))
             }
         }
@@ -181,16 +184,38 @@ enum ConnectionMethod: String, CaseIterable, Identifiable {
     func disconnect() async {
         generation = UUID(); let oldTask = captureTask; oldTask?.cancel(); captureTask = nil
         let old = transport; transport = nil; device = nil; image = nil; files = []; photos = [:]; controlEnabled = false; paused = false
+        await old?.disconnect()
         await oldTask?.value
         if recording { await stopRecording() }
-        await old?.disconnect()
         connectionTitle = "准备连接手机"
         connectionDetail = "用数据线连接手机后，点击“连接手机”。"
         notice = "已断开连接"; log("会话已结束")
     }
+    func setPaused(_ value: Bool) async {
+        paused = value
+        await transport?.setCapturePaused(value)
+        if !value { frameRateMeter = FrameRateMeter() }
+    }
     func control(_ event: ControlEvent) async {
         guard controlEnabled, !paused, let transport else { return }
-        do { try await transport.control(event); log("操作已提交：\(event.kind)（不记录文字内容）") } catch { controlEnabled = false; report(error) }
+        guard pendingControls < 4 else { controlStatus = "操作较多，请等待前面的动作完成。"; return }
+        let id = generation
+        pendingControls += 1
+        defer { pendingControls = max(0, pendingControls - 1) }
+        do {
+            try await transport.control(event)
+            guard generation == id else { return }
+            controlStatus = "操作已完成，可以继续点击。"
+        } catch is CancellationError { return }
+        catch {
+            guard generation == id else { return }
+            controlStatus = error.localizedDescription
+            log("控制：\(error.localizedDescription.prefix(250))")
+            if (error as? ControlFailure)?.shouldDisableControl == true {
+                controlEnabled = false
+                self.error = error.localizedDescription
+            }
+        }
     }
     func sendInput() async {
         guard !inputText.isEmpty else { return }
@@ -281,7 +306,7 @@ enum ConnectionMethod: String, CaseIterable, Identifiable {
     func exportDiagnostics() {
         let panel = NSSavePanel(); panel.nameFieldStringValue = "鸿桥-诊断.txt"; panel.allowedContentTypes = [.plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let text = "鸿桥 0.2.0\n连接状态：\(connected ? "已连接" : "未连接")\n画面：\(device?.width ?? 0)×\(device?.height ?? 0)\n会话帧数：\(frames)\n诊断不包含输入文字、剪贴板正文或画面。\n\n" + logs.joined(separator: "\n")
+        let text = "鸿桥 0.2.1\n连接状态：\(connected ? "已连接" : "未连接")\n画面：\(device?.width ?? 0)×\(device?.height ?? 0)\n会话帧数：\(frames)\n诊断不包含输入文字、剪贴板正文或画面。\n\n" + logs.joined(separator: "\n")
         do { try text.write(to: url, atomically: true, encoding: .utf8); notice = "诊断已保存到你选择的位置" } catch { report(error) }
     }
     func shutdown() { captureTask?.cancel() }

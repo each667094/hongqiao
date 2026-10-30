@@ -28,7 +28,7 @@ app=pathlib.Path(sys.argv[1]); helper=app/'Contents/Helpers'
 p={
 'CFBundleExecutable':'Hongqiao','CFBundleIdentifier':'local.hongqiao.bridge',
 'CFBundleName':'鸿桥','CFBundleDisplayName':'鸿桥','CFBundlePackageType':'APPL',
-'CFBundleShortVersionString':'0.2.0','CFBundleVersion':'2',
+'CFBundleShortVersionString':'0.2.1','CFBundleVersion':'3',
 'LSMinimumSystemVersion':'14.0','NSPrincipalClass':'NSApplication',
 'NSHighResolutionCapable':True,'LSApplicationCategoryType':'public.app-category.utilities',
 'CFBundleIconFile':'AppIcon',

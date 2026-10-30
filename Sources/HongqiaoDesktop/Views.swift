@@ -79,7 +79,7 @@ struct RootView: View {
                     .font(.system(size: 11)).foregroundStyle(Color.muted).lineSpacing(4)
                 if model.connected { Button("断开连接") { Task { await model.disconnect() } }.buttonStyle(.plain).foregroundStyle(Color.accent).font(.system(size: 11)).disabled(model.connecting || model.busy) }
             }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 12)).padding(14)
-            HStack { Text("LOCAL FIRST").tracking(1.8); Spacer(); Text("v0.2") }.font(.system(size: 8, design: .monospaced)).foregroundStyle(Color.muted.opacity(0.65)).padding(.horizontal, 24).padding(.bottom, 20)
+            HStack { Text("LOCAL FIRST").tracking(1.8); Spacer(); Text("v0.2.1") }.font(.system(size: 8, design: .monospaced)).foregroundStyle(Color.muted.opacity(0.65)).padding(.horizontal, 24).padding(.bottom, 20)
         }.background(Color.sidebar).overlay(alignment: .trailing) { Rectangle().fill(Color.line).frame(width: 1) }
     }
     private var header: some View {
@@ -182,7 +182,7 @@ struct MirrorView: View {
                     HStack(spacing: 20) {
                         tool("返回", "chevron.backward") { Task { await model.control(ControlEvent("back")) } }.disabled(!model.controlEnabled || model.paused)
                         tool("主页", "house") { Task { await model.control(ControlEvent("home")) } }.disabled(!model.controlEnabled || model.paused)
-                        tool(model.paused ? "继续" : "暂停", model.paused ? "play" : "pause") { model.paused.toggle() }
+                        tool(model.paused ? "继续" : "暂停", model.paused ? "play" : "pause") { Task { await model.setPaused(!model.paused) } }
                         tool("截图", "camera") { model.saveScreenshot() }.disabled(model.image == nil)
                         tool(model.recording ? "结束录屏" : "录屏", model.recording ? "stop.circle.fill" : "record.circle") { if model.recording { Task { await model.stopRecording() } } else { model.startRecording() } }.disabled(model.image == nil)
                     }.padding(.vertical, 10)
@@ -191,7 +191,7 @@ struct MirrorView: View {
                     Card {
                         VStack(alignment: .leading, spacing: 15) {
                             HStack { Image(systemName: "cursorarrow.rays").foregroundStyle(Color.mint); Text("反向控制").fontWeight(.semibold); Spacer(); Toggle("", isOn: $model.controlEnabled).labelsHidden().toggleStyle(.switch).controlSize(.small) }
-                            Text(model.controlEnabled ? "点击、长按、拖动或双指滚动。右键与 Esc 返回。" : "开启后才会向设备发送操作。暂停或断连时不会注入操作。")
+                            Text(model.controlEnabled ? model.controlStatus : "开启后才会向设备发送操作。暂停或断连时不会注入操作。")
                                 .font(.system(size: 12)).foregroundStyle(Color.muted).lineSpacing(5)
                         }
                     }
@@ -210,7 +210,7 @@ struct MirrorView: View {
                             row("最近取帧", "\(Int(model.latency)) ms")
                             row("累计帧数", "\(model.frames)")
                             row("录制", model.recording ? "进行中 · 无音频" : "未开始")
-                            Text("当前画面按所选间隔刷新；录屏不包含声音。").font(.system(size: 10)).foregroundStyle(Color.muted).lineSpacing(4)
+                            Text("自动模式优先降低延迟；显示实测帧率。录屏不包含声音。").font(.system(size: 10)).foregroundStyle(Color.muted).lineSpacing(4)
                         }
                     }
                 }.frame(width: 280)
@@ -381,11 +381,11 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 ConnectionPanel(model: model)
                 Card {
-                    HStack { VStack(alignment: .leading, spacing: 8) { Text("画面刷新间隔").fontWeight(.medium); Text("间隔越短，刷新越频繁；实际速度取决于手机与连接状态。").font(.system(size: 11)).foregroundStyle(Color.muted) }; Spacer(); Picker("", selection: $model.frameInterval) { Text("0.25 秒").tag(0.25); Text("0.5 秒").tag(0.5); Text("1 秒").tag(1.0); Text("2 秒").tag(2.0) }.frame(width: 110).labelsHidden() }
+                    HStack { VStack(alignment: .leading, spacing: 8) { Text("画面刷新").fontWeight(.medium); Text("自动模式使用有界采集流水线，实际帧率取决于手机与连接状态。").font(.system(size: 11)).foregroundStyle(Color.muted) }; Spacer(); Picker("", selection: $model.frameInterval) { Text("自动 · 优先流畅").tag(0.0); Text("0.25 秒").tag(0.25); Text("0.5 秒").tag(0.5); Text("1 秒").tag(1.0); Text("2 秒").tag(2.0) }.frame(width: 110).labelsHidden() }
                 }
                 DisclosureGroup("关于鸿桥与开源组件") {
                     HStack {
-                        Text("鸿桥 0.2.0 · Apple Silicon").font(.system(size: 12)).foregroundStyle(Color.muted)
+                        Text("鸿桥 0.2.1 · Apple Silicon").font(.system(size: 12)).foregroundStyle(Color.muted)
                         Spacer()
                         Button("查看开源组件说明") {
                             if let url = Bundle.main.url(forResource: "开源组件说明", withExtension: "md") { NSWorkspace.shared.open(url) }

@@ -99,10 +99,51 @@ final class BridgeTests {
         XCTAssertThrowsError(try HDCTransport(executable: executable, target: "-malicious"))
         do { try await transport.control(ControlEvent("click", x: -1, y: 20)); XCTFail() } catch {}
     }
+    func testControlResponses() throws {
+        for response in ["No Error", "No Error\n", " No Error \r\n", "", "Success", "OK"] {
+            do { try ControlValidation.validate(status: 0, output: response); XCTAssertTrue(true) }
+            catch { XCTFail("successful control rejected") }
+        }
+        for response in ["Error: action failed", "No Error\nPermission denied", "[Fail] operation", "unknown command"] {
+            XCTAssertThrowsError(try ControlValidation.validate(status: 0, output: response))
+        }
+        do { try ControlValidation.validate(status: 0, output: "Permission denied"); XCTFail() }
+        catch let error as ControlFailure { XCTAssertTrue(error.shouldDisableControl) }
+        do { try ControlValidation.validate(status: 0, output: "another uitest is already running"); XCTFail() }
+        catch let error as ControlFailure { XCTAssertTrue(!error.shouldDisableControl) }
+    }
+    func testFrameBufferAndGeometry() async throws {
+        let buffer = LatestFrameBuffer()
+        let first = Frame(data: Data([1]), elapsedMS: 1, capturedAt: Date(timeIntervalSince1970: 1))
+        let newest = Frame(data: Data([3]), elapsedMS: 1, capturedAt: Date(timeIntervalSince1970: 3))
+        await buffer.offer(first); await buffer.offer(newest); await buffer.offer(first)
+        let result = try await buffer.next(); XCTAssertEqual(result.data, Data([3]))
+        let waiting = Task { try await buffer.next() }; waiting.cancel()
+        do { _ = try await waiting.value; XCTFail() } catch is CancellationError { XCTAssertTrue(true) }
+        await buffer.report(BridgeError("temporary capture error"))
+        do { _ = try await buffer.next(); XCTFail() } catch { XCTAssertTrue(true) }
+        await buffer.discard(before: Date(timeIntervalSince1970: 5))
+        await buffer.offer(newest)
+        await buffer.offer(Frame(data: Data([6]), elapsedMS: 1, capturedAt: Date(timeIntervalSince1970: 6)))
+        let recovered = try await buffer.next(); XCTAssertEqual(recovered.data, Data([6]))
+        let a = PreviewSize.dimensions(width: 1128, height: 2444)
+        XCTAssertEqual(a.0, 720); XCTAssertEqual(a.1, 1560)
+        let b = PreviewSize.dimensions(width: 2444, height: 1128)
+        XCTAssertEqual(b.0, 1560); XCTAssertEqual(b.1, 720)
+        let physical = ScreenGeometry.map(x: 360, y: 780, viewWidth: 720, viewHeight: 1560, screenWidth: 1128, screenHeight: 2444)
+        XCTAssertTrue(abs((physical?.0 ?? 0) - 564) <= 1); XCTAssertTrue(abs((physical?.1 ?? 0) - 1222) <= 1)
+        var meter = FrameRateMeter(); _ = meter.record(at: 1); _ = meter.record(at: 1.1)
+        XCTAssertTrue(abs(meter.record(at: 1.2) - 10) < 0.01)
+    }
+
 }
 
 @main struct CheckRunner {
     static func main() async {
+        if let index = CommandLine.arguments.firstIndex(of: "--device"), CommandLine.arguments.count > index + 1 {
+            do { try await LiveChecks.run(target: CommandLine.arguments[index + 1]); exit(0) }
+            catch { fputs(error.localizedDescription + "\n", stderr); exit(1) }
+        }
         let suite = BridgeTests()
         do {
             suite.testAspectFitMappingRejectsLetterbox()
@@ -114,8 +155,10 @@ final class BridgeTests {
             try suite.testBundledToolIntegrity()
             try await suite.testProcessTimeout()
             try await suite.testHDCArgumentsWithFakeExecutable()
+            try suite.testControlResponses()
+            try await suite.testFrameBufferAndGeometry()
         } catch { suite.failures.append(error.localizedDescription) }
-        let report: [String: Any] = ["status": suite.failures.isEmpty ? "passed" : "failed", "assertions": suite.assertions, "failures": suite.failures, "phoneUsed": false, "testSuites": 9]
+        let report: [String: Any] = ["status": suite.failures.isEmpty ? "passed" : "failed", "assertions": suite.assertions, "failures": suite.failures, "phoneUsed": false, "testSuites": 11]
         let data = try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         print(String(decoding: data, as: UTF8.self))
         exit(suite.failures.isEmpty ? 0 : 1)

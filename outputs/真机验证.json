@@ -1,0 +1,48 @@
+{
+  "controlResult": "No Error accepted, queued wallpaper taps and Home completed",
+  "controlsCompleted": 5,
+  "meanCaptureAndTransferMS": 455.9517155090968,
+  "measuredFPS": 6.560861797618575,
+  "originalSize": [
+    1128,
+    2444
+  ],
+  "pauseResume": "fresh frame verified",
+  "phoneUsed": true,
+  "previewFrames": 24,
+  "realDeviceVerified": true,
+  "sampleSeconds": 3.6580560207366943,
+  "status": "passed",
+  "system": "CHZ-AL00 7.0.0.111(SP10C00E111R2P4)",
+  "timestamp": "2026-10-30T04:31:51Z",
+  "version": "0.2.1",
+  "desktopUI": {
+    "version": "0.2.1",
+    "phoneConnected": true,
+    "repeatedHomeActions": 3,
+    "controlStayedEnabled": true,
+    "successStatusObserved": "操作已完成，可以继续点击。",
+    "observedFPSRange": [
+      4.2,
+      7.6
+    ],
+    "pauseResume": "verified in backend harness; not separately verified through UI"
+  },
+  "validationScope": "CHZ-AL00 via USB; temporary screen capture, Home and empty-wallpaper taps only",
+  "experimentalFileCleanup": {
+    "status": "pending_phone_disconnected",
+    "reason": "HDC list targets returned [Empty] after tests",
+    "scope": "nine explicitly named files under /data/local/tmp; no apps or settings installed",
+    "remoteNames": [
+      "hongqiao-capture-probe",
+      "hongqiao-stream-probe.so",
+      "hongqiao-stream-probe.port",
+      "hongqiao-benchmark.jpeg",
+      "hongqiao-benchmark.png",
+      "hongqiao-bench-0.jpeg",
+      "hongqiao-bench-1.jpeg",
+      "hongqiao-bench-2.jpeg",
+      "hongqiao-bench-3.jpeg"
+    ]
+  }
+}

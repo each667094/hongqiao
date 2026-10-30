@@ -38,9 +38,14 @@ public struct ControlEvent: Codable, Equatable {
 public struct Frame: Sendable {
     public let data: Data
     public let elapsedMS: Double
-    public init(data: Data, elapsedMS: Double) { self.data = data; self.elapsedMS = elapsedMS }
+    public let sourceWidth: Int?
+    public let sourceHeight: Int?
+    public let capturedAt: Date
+    public init(data: Data, elapsedMS: Double, sourceWidth: Int? = nil, sourceHeight: Int? = nil, capturedAt: Date = Date()) {
+        self.data = data; self.elapsedMS = elapsedMS; self.sourceWidth = sourceWidth; self.sourceHeight = sourceHeight; self.capturedAt = capturedAt
+    }
 }
-public struct Capabilities {
+public struct Capabilities: Sendable {
     public var clipboardRead: Bool
     public var clipboardWrite: Bool
     public var photoLibrary: Bool
@@ -52,6 +57,7 @@ public protocol BridgeTransport: AnyObject {
     var capabilities: Capabilities { get }
     func connect() async throws -> Device
     func capture() async throws -> Frame
+    func setCapturePaused(_ paused: Bool) async
     func control(_ event: ControlEvent) async throws
     func files(at path: String) async throws -> [RemoteFile]
     func receive(path: String) async throws -> Data
@@ -84,3 +90,5 @@ public enum ScreenGeometry {
         return (min(screenWidth - 1, max(0, Int((x - left) / scale))), min(screenHeight - 1, max(0, Int((y - top) / scale))))
     }
 }
+
+public extension BridgeTransport { func setCapturePaused(_ paused: Bool) async {} }

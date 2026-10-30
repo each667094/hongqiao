@@ -92,7 +92,7 @@ struct HongqiaoApplication: App {
         let model = AppModel()
         try check(model.componentReady && !model.connected && !model.connecting && model.image == nil, "应用启动仅检查内置组件，不发现或连接手机")
         try check(!model.controlEnabled && model.devices.isEmpty, "未连接时关闭控制且不生成设备")
-        let report: [String: Any] = ["status": "passed", "version": "0.2.0", "checks": checks, "bundledToolVersion": result.output.trimmingCharacters(in: .whitespacesAndNewlines), "phoneUsed": false, "realDeviceVerified": false, "timestamp": ISO8601DateFormatter().string(from: Date())]
+        let report: [String: Any] = ["status": "passed", "version": "0.2.1", "checks": checks, "bundledToolVersion": result.output.trimmingCharacters(in: .whitespacesAndNewlines), "phoneUsed": false, "realDeviceVerified": false, "timestamp": ISO8601DateFormatter().string(from: Date())]
         let json = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         print(String(decoding: json, as: UTF8.self))
     }

@@ -1,13 +1,14 @@
 {
-  "version": "0.2.0",
-  "date": "2026-10-28",
+  "version": "0.2.1",
+  "date": "2026-10-30",
   "build": "release arm64, macOS 14+",
+  "appBinarySHA256": "2328f8fd44bfbc567c97137555a7ee7931df9fb7c13c4d7f44d5c8718500528f",
   "core": {
-    "assertions": 50,
+    "assertions": 73,
     "failures": [],
     "phoneUsed": false,
     "status": "passed",
-    "testSuites": 9
+    "testSuites": 11
   },
   "packageChecks": {
     "bundledToolVersion": "Ver: 3.2.0e",
@@ -20,8 +21,56 @@
     "phoneUsed": false,
     "realDeviceVerified": false,
     "status": "passed",
-    "timestamp": "2026-10-28T05:58:15Z",
-    "version": "0.2.0"
+    "timestamp": "2026-10-30T04:31:35Z",
+    "version": "0.2.1"
+  },
+  "deviceChecks": {
+    "controlResult": "No Error accepted, queued wallpaper taps and Home completed",
+    "controlsCompleted": 5,
+    "meanCaptureAndTransferMS": 455.9517155090968,
+    "measuredFPS": 6.560861797618575,
+    "originalSize": [
+      1128,
+      2444
+    ],
+    "pauseResume": "fresh frame verified",
+    "phoneUsed": true,
+    "previewFrames": 24,
+    "realDeviceVerified": true,
+    "sampleSeconds": 3.6580560207366943,
+    "status": "passed",
+    "system": "CHZ-AL00 7.0.0.111(SP10C00E111R2P4)",
+    "timestamp": "2026-10-30T04:31:51Z",
+    "version": "0.2.1",
+    "desktopUI": {
+      "version": "0.2.1",
+      "phoneConnected": true,
+      "repeatedHomeActions": 3,
+      "controlStayedEnabled": true,
+      "successStatusObserved": "操作已完成，可以继续点击。",
+      "observedFPSRange": [
+        4.2,
+        7.6
+      ],
+      "pauseResume": "verified in backend harness; not separately verified through UI"
+    },
+    "validationScope": "CHZ-AL00 via USB; temporary screen capture, Home and empty-wallpaper taps only",
+    "experimentalFileCleanup": {
+      "status": "pending_phone_disconnected",
+      "reason": "HDC list targets returned [Empty] after tests",
+      "scope": "nine explicitly named files under /data/local/tmp; no apps or settings installed",
+      "remoteNames": [
+        "hongqiao-capture-probe",
+        "hongqiao-stream-probe.so",
+        "hongqiao-stream-probe.port",
+        "hongqiao-benchmark.jpeg",
+        "hongqiao-benchmark.png",
+        "hongqiao-bench-0.jpeg",
+        "hongqiao-bench-1.jpeg",
+        "hongqiao-bench-2.jpeg",
+        "hongqiao-bench-3.jpeg"
+      ]
+    }
   },
   "visualReview": {
     "screens": 4,
@@ -31,11 +80,11 @@
   "bundledTool": "HDC 3.2.0e + libusb 1.0.28",
   "runtimeDownloadsRequired": false,
   "manualToolPathRequired": false,
-  "realDeviceVerified": false,
+  "realDeviceVerified": true,
   "limitations": [
     "手机端仍需开启调试并确认首次授权",
-    "本次未搜索、连接或操作手机",
-    "投屏采用截图刷新",
+    "真机验证仅覆盖 CHZ-AL00、HarmonyOS 7.0.0.111 及报告中列出的能力",
+    "投屏仍采用有界并行截图，尚未实现连续视频与音频流",
     "完整图库、手机系统剪贴板和手机摄像头扩展尚未实现"
   ]
 }

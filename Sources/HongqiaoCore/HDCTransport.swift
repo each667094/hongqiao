@@ -1,11 +1,19 @@
 import Foundation
+import ImageIO
 
-public final class HDCTransport: BridgeTransport {
+public actor HDCTransport: BridgeTransport {
     public let executable: URL
     public let target: String
     private let scratch: URL
     private let remoteScreenshot: String
-    public let capabilities = Capabilities(clipboardRead: false, clipboardWrite: false, photoLibrary: false)
+    private let controlGate = AsyncCommandGate()
+    private var closed = false
+    private var capturePaused = false
+    private var sourceWidth = 0, sourceHeight = 0
+    private var geometryUpdatedAt = Date.distantPast
+    private var frameBuffer: LatestFrameBuffer?
+    private var producers: [Task<Void, Never>] = []
+    public nonisolated let capabilities = Capabilities(clipboardRead: false, clipboardWrite: false, photoLibrary: false)
     public init(executable: URL, target: String) throws {
         guard FileManager.default.isExecutableFile(atPath: executable.path) else { throw BridgeError("内置连接组件不可用，请重新安装完整的鸿桥") }
         guard !target.isEmpty, !target.hasPrefix("-"), !target.contains("\n") else { throw BridgeError("设备标识无效") }
@@ -43,14 +51,68 @@ public final class HDCTransport: BridgeTransport {
         return Device(id: target, name: model.trimmingCharacters(in: .whitespacesAndNewlines), system: system.trimmingCharacters(in: .whitespacesAndNewlines), width: 0, height: 0)
     }
     public func capture() async throws -> Frame {
+        if let frameBuffer { return try await frameBuffer.next() }
+        guard !closed else { throw CancellationError() }
+        let first = try await captureSingle(slot: 4, native: true)
+        let buffer = LatestFrameBuffer(); frameBuffer = buffer
+        for slot in 0..<(target.contains(":") ? 2 : 4) {
+            producers.append(Task { [weak self] in
+                // Avoid bursts of near-simultaneous captures from every worker.
+                try? await Task.sleep(nanoseconds: UInt64(slot) * 120_000_000)
+                var failures = 0
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    if await self.closed { return }
+                    if await self.capturePaused { try? await Task.sleep(nanoseconds: 100_000_000); continue }
+                    do {
+                        let frame = try await self.captureSingle(slot: slot, native: false)
+                        guard !Task.isCancelled else { return }
+                        if await self.capturePaused { continue }
+                        await buffer.offer(frame); failures = 0
+                    } catch {
+                        if Task.isCancelled { return }
+                        failures += 1
+                        if failures >= 3 { await buffer.report(error); failures = 0 }
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                    }
+                }
+            })
+        }
+        return first
+    }
+    public func setCapturePaused(_ paused: Bool) async {
+        capturePaused = paused
+        // A capture started before pausing must not reappear after resuming.
+        await frameBuffer?.discard(before: Date())
+    }
+    private func captureSingle(slot: Int, native: Bool) async throws -> Frame {
         let start = Date()
-        _ = try await shell(["snapshot_display", "-f", remoteScreenshot])
+        let remote = remoteScreenshot.replacingOccurrences(of: ".jpeg", with: "-\(slot).jpeg")
+        let size = PreviewSize.dimensions(width: sourceWidth, height: sourceHeight)
+        let arguments = ["snapshot_display", "-f", remote] + (native || size.0 == 0 ? [] : ["-w", "\(size.0)", "-h", "\(size.1)"])
+        let output = try await shell(arguments)
         try Task.checkCancellation()
-        let local = scratch.appendingPathComponent("frame.jpeg")
-        _ = try await run(["file", "recv", remoteScreenshot, local.path])
+        guard !closed else { throw CancellationError() }
+        let regex = try NSRegularExpression(pattern: #"width:\s*(\d+),\s*height:\s*(\d+)"#)
+        let ns = output as NSString
+        let metadata = regex.firstMatch(in: output, range: NSRange(location: 0, length: ns.length))
+        let width = metadata.flatMap { Int(ns.substring(with: $0.range(at: 1))) } ?? sourceWidth
+        let height = metadata.flatMap { Int(ns.substring(with: $0.range(at: 2))) } ?? sourceHeight
+        if width > 0 && height > 0 && start >= geometryUpdatedAt { sourceWidth = width; sourceHeight = height; geometryUpdatedAt = start }
+        let local = scratch.appendingPathComponent("frame-\(slot).jpeg")
+        // Never display a previous successful file when a new capture fails.
+        try? FileManager.default.removeItem(at: local)
+        guard !output.lowercased().contains("error:"), !output.contains("Permission denied") else { throw BridgeError("手机截图未完成：\(output.prefix(300))") }
+        _ = try await run(["file", "recv", remote, local.path])
         let data = try Data(contentsOf: local)
-        guard !data.isEmpty else { throw BridgeError("设备未返回截图，可能是系统保护画面或尚未授权") }
-        return Frame(data: data, elapsedMS: Date().timeIntervalSince(start) * 1000)
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(source) > 0 else { throw BridgeError("手机未返回有效画面") }
+        if native, width == 0, let info = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
+            sourceWidth = info[kCGImagePropertyPixelWidth] as? Int ?? 0
+            sourceHeight = info[kCGImagePropertyPixelHeight] as? Int ?? 0
+        }
+        // Rotation: discard a frame sized for the old orientation. Next capture uses the new ratio.
+        if !native, (size.0 > size.1) != (width > height) { throw BridgeError("手机方向已变化，正在更新画面尺寸") }
+        return Frame(data: data, elapsedMS: Date().timeIntervalSince(start) * 1000, sourceWidth: width > 0 ? width : sourceWidth, sourceHeight: height > 0 ? height : sourceHeight, capturedAt: start)
     }
     public func control(_ e: ControlEvent) async throws {
         func coordinate(_ value: Int?) throws -> String {
@@ -68,11 +130,19 @@ public final class HDCTransport: BridgeTransport {
             args += ["text", text]
         default: throw BridgeError("不支持的控制动作")
         }
+        await controlGate.acquire()
         do {
-            let out = try await shell(args)
-            guard !out.lowercased().contains("error"), !out.lowercased().contains("failed"), !out.contains("Permission denied") else { throw BridgeError("系统拒绝控制：\(out.prefix(700))") }
+            try Task.checkCancellation()
+            guard !closed else { throw CancellationError() }
+            let result = try await ProcessRunner.run(executable, ["-t", target, "shell", Shell.command(args)])
+            do { try ControlValidation.validate(status: result.status, output: result.output) }
+            catch let failure as ControlFailure {
+                if e.kind == "text" { throw ControlFailure(failure.kind, "设备文字输入未完成，请检查输入框焦点与手机授权（不保留命令返回正文）。") }
+                throw failure
+            }
+            await controlGate.release()
         } catch {
-            if e.kind == "text" { throw BridgeError("设备文字输入失败，请检查输入框焦点、UITest 权限与系统版本（不保留输入命令的返回正文）") }
+            await controlGate.release()
             throw error
         }
     }
@@ -107,5 +177,13 @@ public final class HDCTransport: BridgeTransport {
     }
     public func readClipboard() async throws -> String { throw BridgeError("HDC 不提供公开的系统剪贴板读取接口，需手机伴侣应用配合") }
     public func writeClipboard(_ text: String) async throws { throw BridgeError("HDC 仅支持将文字输入当前焦点，不等同于写入手机剪贴板") }
-    public func disconnect() async { _ = try? await shell(["rm", "-f", remoteScreenshot]) }
+    public func disconnect() async {
+        closed = true
+        for task in producers { task.cancel() }
+        await frameBuffer?.finish()
+        for task in producers { await task.value }
+        producers.removeAll(); frameBuffer = nil
+        let paths = (0..<5).map { remoteScreenshot.replacingOccurrences(of: ".jpeg", with: "-\($0).jpeg") }
+        _ = try? await shell(["rm", "-f"] + paths)
+    }
 }

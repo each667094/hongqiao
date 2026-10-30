@@ -15,7 +15,7 @@ for word in removed:
  assert word.encode() not in binary, f'二进制残留已删除内容: {word}'
 assert b'NWListener' not in binary, '产品不应包含本地服务监听器'
 info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
-assert info['CFBundleShortVersionString']=='0.2.0'
+assert info['CFBundleShortVersionString']=='0.2.1'
 assert not any(w.lower() in json.dumps(info).lower() for w in ['chatgpt','codex'])
 subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True)
 print('发布包审查通过：组件、版本与内容清理已核对')
